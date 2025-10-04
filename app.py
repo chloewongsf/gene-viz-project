@@ -54,7 +54,7 @@ def filter_table(df, padj_thr, lfc_thr):
 def overlap_same_direction(tables, require_all=True):
     names = list(tables.keys())
     slim = {
-        n: tables[n][["gene_id","log2FoldChange","padj","direction"]].rename(
+        n: tables[n][["gene_id","gene_name","log2FoldChange","padj","direction"]].rename(
             columns={"log2FoldChange": f"log2fc_{n}",
                      "padj": f"padj_{n}",
                      "direction": f"dir_{n}"}
@@ -82,7 +82,7 @@ def overlap_same_direction(tables, require_all=True):
 def build_long(df_dict):
     parts = []
     for name, df in df_dict.items():
-        tmp = df[["gene_id","log2FoldChange","padj","neglog10_padj","regulation"]].copy()
+        tmp = df[["gene_id","gene_name","log2FoldChange","padj","neglog10_padj","regulation"]].copy()
         tmp["cell_line"] = name
         parts.append(tmp)
     return pd.concat(parts, ignore_index=True)
@@ -97,7 +97,7 @@ def volcano_all_plot(long_df, N_labels=0, per_cell=False, score_how="combo",
                      padj_thr=0.05, lfc_thr=1.0):
     fig = px.scatter(long_df, x="log2FoldChange", y="neglog10_padj",
                      color="cell_line", symbol="regulation", opacity=0.55,
-                     hover_data=["gene_id","padj"])
+                     hover_data=["gene_name","padj"])
     fig.add_vline(x= lfc_thr,  line_dash="dash", opacity=0.4)
     fig.add_vline(x=-lfc_thr, line_dash="dash", opacity=0.4)
     fig.add_hline(y=-np.log10(padj_thr), line_dash="dash", opacity=0.4)
@@ -109,7 +109,7 @@ def volcano_all_plot(long_df, N_labels=0, per_cell=False, score_how="combo",
         else:
             top = add_score(long_df, score_how).nlargest(N_labels, "score")
         fig.add_scatter(x=top["log2FoldChange"], y=top["neglog10_padj"],
-                        mode="markers+text", text=top["gene_id"],
+                        mode="markers+text", text=top["gene_name"],
                         textposition="top center",
                         marker=dict(size=10, line=dict(width=0.5, color="black")),
                         showlegend=False)
@@ -143,7 +143,7 @@ filtered = {name: filter_table(df, padj_thr, lfc_thr) for name, df in raw.items(
 st.subheader("Filtered Tables (top rows)")
 for name, df in filtered.items():
     st.write(f"**{name}** — rows: {len(df)}")
-    st.dataframe(df[["gene_id","log2FoldChange","padj","regulation"]].head(25), use_container_width=True)
+    st.dataframe(df[["gene_name","log2FoldChange","padj","regulation"]].head(25), use_container_width=True)
 
 # overlap views
 require_all = overlap_mode.startswith("All")
@@ -151,7 +151,20 @@ overlap_df, order_names = overlap_same_direction(filtered, require_all=require_a
 st.markdown("---")
 st.subheader(f"Overlap Genes — {overlap_mode}")
 st.write(f"**Count:** {len(overlap_df)}")
-st.dataframe(overlap_df.head(100), use_container_width=True)
+
+# Create a more readable display with gene names
+if len(overlap_df) > 0:
+    # Reorder columns to put gene_name first, then gene_id, then the rest
+    display_cols = ["gene_name", "gene_id"]
+    # Add all other columns except gene_name and gene_id
+    other_cols = [col for col in overlap_df.columns if col not in ["gene_name", "gene_id"]]
+    display_cols.extend(other_cols)
+    
+    # Create display dataframe with reordered columns
+    display_df = overlap_df[display_cols].head(100)
+    st.dataframe(display_df, use_container_width=True)
+else:
+    st.dataframe(overlap_df.head(100), use_container_width=True)
 
 if len(overlap_df) > 0:
     padj_cols = [f"padj_{n}" for n in order_names if f"padj_{n}" in overlap_df.columns]
@@ -171,10 +184,12 @@ if len(overlap_df) > 0:
     fc_subset = fc.reindex(z_log_subset.index)
 
     st.markdown("### Heatmap — −log10(padj) (sorted by average)")
+    # Get gene names for y-axis labels
+    gene_names = overlap_df.set_index("gene_id").loc[z_log_subset.index, "gene_name"]
     fig_hm = go.Figure(data=go.Heatmap(
         z=z_log_subset.values,
         x=z_log_subset.columns.tolist(),
-        y=z_log_subset.index.tolist(),
+        y=gene_names.tolist(),
         colorscale="Viridis",
         colorbar=dict(title="-log10(padj)")
     ))
@@ -185,7 +200,7 @@ if len(overlap_df) > 0:
     fig_fc = go.Figure(data=go.Heatmap(
         z=fc_subset.values,
         x=fc_subset.columns.tolist(),
-        y=fc_subset.index.tolist(),
+        y=gene_names.tolist(),
         colorscale="RdBu",
         colorbar=dict(title="log2FC")
     ))
@@ -214,7 +229,7 @@ with st.expander("Per-cell-line Volcanoes"):
     for name, df in filtered.items():
         fig = px.scatter(df, x="log2FoldChange", y="neglog10_padj",
                          color="regulation", opacity=0.65,
-                         hover_data=["gene_id","padj"])
+                         hover_data=["gene_name","padj"])
         thr = lfc_thr if lfc_thr>0 else 1.0
         fig.add_vline(x= thr, line_dash="dash", opacity=0.4)
         fig.add_vline(x=-thr, line_dash="dash", opacity=0.4)
@@ -245,7 +260,7 @@ if st.button("📊 Export Excel workbook (.xlsx)"):
 
         # filtered tables per cell line
         for name, df in filtered.items():
-            df_out = df[["gene_id","log2FoldChange","padj","regulation"]].copy()
+            df_out = df[["gene_id","gene_name","log2FoldChange","padj","regulation"]].copy()
             df_out.to_excel(xw, index=False, sheet_name=f"filtered_{name}")
 
     out_xlsx.seek(0)

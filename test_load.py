@@ -1,7 +1,7 @@
 import pandas as pd
 
 # Load Excel file
-file_path = "data.xlsx"  # make sure it's in the project root
+file_path = "data/data.xlsx"  # bundled data file
 xls = pd.ExcelFile(file_path)
 
 # Print sheet names
